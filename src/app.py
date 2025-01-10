@@ -1,22 +1,25 @@
 import os
+import glob
 import streamlit as st
 
 # Local imports
 from video_processing import process_videos_in_directory
 from app_utils import (
     should_skip_analysis,
-    save_analysis,
-    show_progress_bar
+    save_analysis
+    # show_progress_bar  # No longer used
 )
 from analysis_utils import (
     analyze_with_vertex_ai,
     analyze_with_gemini_api
 )
 
+
 ##############################################################################
 # Constants and Defaults
 ##############################################################################
-DEFAULT_PROMPT = """Analyze this audio for specific examples of [target topic] - these are instances where [explain what you're looking for]. 
+DEFAULT_PROMPT = """
+Analyze this audio for specific examples of [target topic] - these are instances where [explain what you're looking for]. 
 
 Please start with a brief overview of what the audio is about.
 
@@ -33,11 +36,13 @@ Don't include:
 
 End with your assessment: How confident are you these were genuine examples of [target topic]? Were any examples unclear or ambiguous? How reliable were the speakers in their descriptions?
 
-If no clear examples are found, simply state that."""
+If no clear examples are found, simply state that.
+"""
 
 DEFAULT_MODEL = "gemini-1.5-flash-002"
 DEFAULT_GCP_PROJECT = "my-gcp-project"
 DEFAULT_GCP_LOCATION = "us-east1"
+
 
 ##############################################################################
 # Helper Functions
@@ -102,6 +107,7 @@ def get_vertex_secrets():
             "credentials_file": "./gcp_credentials.json"
         }
 
+
 ##############################################################################
 # UI Sections
 ##############################################################################
@@ -131,22 +137,20 @@ def render_api_configuration():
             help="Select which API to use for analysis."
         )
         
-        # Model Name (applies to both Gemini & Vertex, if you want to use custom model)
         model_name = st.text_input("Model Name:", value=DEFAULT_MODEL)
 
         st.write("---")
         st.markdown("#### Credentials")
         
         if api_choice == "Gemini API":
-            # If secrets-based API key exists, use it; otherwise fall back to user input
+            # Check if there's a secrets-based API key
             gemini_secrets_key = get_gemini_api_key_from_secrets()
             if gemini_secrets_key:
                 st.info("Using GEMINI_API_KEY from secrets.toml.")
                 credentials = gemini_secrets_key
             else:
                 credentials = st.text_input("Gemini API Key:", type="password", help="Enter your Gemini API key")
-            
-            # For Gemini, we don't need project/region
+
             project_id = None
             location = None
 
@@ -159,14 +163,13 @@ def render_api_configuration():
             with col2:
                 location = st.text_input("GCP Location:", value=vertex_info["location"])
 
-            # credentials_file can come from secrets or typed in by the user
             credentials = st.text_input(
                 "Path to GCP Service Account JSON:",
                 value=vertex_info["credentials_file"],
                 help="Enter path to your GCP service account credentials JSON file"
             )
 
-        # Store them in session state for next steps
+        # Store them in session state
         st.session_state.api_choice = api_choice
         st.session_state.credentials = credentials
         st.session_state.project_id = project_id
@@ -176,7 +179,8 @@ def render_api_configuration():
 
 def render_video_to_audio():
     with st.expander("Video to Audio Conversion", expanded=True):
-        video_folder = st.text_input("Video Folder Path:", "./videos", help="Enter the path to a folder with video files")
+        video_folder = st.text_input("Video Folder Path:", "./videos",
+                                     help="Enter the path to a folder with video files")
         
         if "processed_audio_files" not in st.session_state:
             st.session_state.processed_audio_files = []
@@ -184,7 +188,6 @@ def render_video_to_audio():
         if st.button("Convert Videos to Audio"):
             if os.path.isdir(video_folder):
                 with st.spinner("Converting videos to audio..."):
-                    from video_processing import process_videos_in_directory
                     audio_files = process_videos_in_directory(video_folder)
                     st.session_state.processed_audio_files = audio_files
                 
@@ -198,33 +201,33 @@ def render_video_to_audio():
 
 def render_audio_analysis():
     with st.expander("Analyze Audio Files", expanded=True):
-        if "processed_audio_files" not in st.session_state or not st.session_state.processed_audio_files:
-            st.warning("No audio files to analyze. Please convert some videos first.")
-            return
-
-        # Check if credentials are provided
-        if not st.session_state.credentials:
-            if st.session_state.api_choice == "Vertex AI":
-                st.error("Please provide path to your GCP credentials JSON file.")
-            else:
-                st.error("Please provide your Gemini API key.")
-            return
-
         skip_reanalysis = st.checkbox("Skip re-analysis if file already exists?", value=True)
-        if st.button("Run Analysis"):
-            audio_files = st.session_state.processed_audio_files
-            total_files = len(audio_files)
 
-            if total_files == 0:
-                st.warning("No audio files found to analyze.")
+        if st.button("Run Analysis"):
+            # Check if any audio files are in session state
+            if not st.session_state.processed_audio_files:
+                st.warning("No audio files found in session state. Checking output/audio folder instead.")
+                
+                # Attempt to load existing audio from 'output/audio'
+                existing_audio_files = glob.glob("output/audio/*.mp3")
+                st.session_state.processed_audio_files = existing_audio_files
+
+            audio_files = st.session_state.processed_audio_files
+            if not audio_files:
+                st.warning("No audio files found to analyze. Please convert videos or ensure .mp3 files exist.")
                 return
 
-            st.write(f"**Starting analysis for {total_files} audio files...**")
-            for i, audio_file in enumerate(audio_files, start=1):
-                # Update progress bar
-                show_progress_bar(i, total_files, label="Analyzing Audio")
+            # Check credentials
+            if not st.session_state.credentials:
+                if st.session_state.api_choice == "Vertex AI":
+                    st.error("Please provide path to your GCP credentials JSON file.")
+                else:
+                    st.error("Please provide your Gemini API key.")
+                return
 
-                if should_skip_analysis(audio_file, skip_reanalysis):
+            st.write(f"**Starting analysis for {len(audio_files)} audio files...**")
+            for audio_file in audio_files:
+                if skip_reanalysis and should_skip_analysis(audio_file, skip_reanalysis=True):
                     st.info(f"Skipping re-analysis for `{os.path.basename(audio_file)}` (analysis file exists).")
                     continue
 
@@ -251,7 +254,6 @@ def render_audio_analysis():
                 except Exception as e:
                     st.error(f"Failed to analyze {audio_file}. Error: {str(e)}")
 
-            # Clear the progress bar
             st.success("Analysis complete!")
 
 
@@ -271,7 +273,9 @@ def main():
     render_video_to_audio()
     render_audio_analysis()
 
+
 if __name__ == "__main__":
+    # UV run snippet
     if "__streamlitmagic__" not in locals():
         import streamlit.web.bootstrap
         streamlit.web.bootstrap.run(__file__, False, [], {})

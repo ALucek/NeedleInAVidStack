@@ -128,8 +128,7 @@ Todo:
 - Better interface
 - Clean up input/output methods
 - Pressure test with long/many videos
-- Recognize when files have been processed already/exisiting but yet to be processed audio/video
-- Fix weird error when uv runs streamlit app
+- Fix weird error when uv closes streamlit app
 
 ## License
 
