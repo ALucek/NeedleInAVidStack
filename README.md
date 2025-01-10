@@ -60,7 +60,7 @@ uv run src/app.py
 
 5. Click "Analyze Audio Files" to run the analysis
 
-### API Configuration
+## API Configuration
 
 #### Using Gemini API:
 - Select "Gemini API" as your API choice
@@ -94,7 +94,7 @@ credentials_file = "./path/to/credentials.json"
 
 *Note: Users who prefer not to use secrets.toml can manually input their credentials through the app interface.*
 
-### Example Prompt
+## Example Prompt
 
 The default prompt template helps you structure your analysis:
 
