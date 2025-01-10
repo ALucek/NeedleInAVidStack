@@ -18,8 +18,7 @@ from analysis_utils import (
 ##############################################################################
 # Constants and Defaults
 ##############################################################################
-DEFAULT_PROMPT = """
-Analyze this audio for specific examples of [target topic] - these are instances where [explain what you're looking for]. 
+DEFAULT_PROMPT = """Analyze this audio for specific examples of [target topic] - these are instances where [explain what you're looking for]. 
 
 Please start with a brief overview of what the audio is about.
 
@@ -36,8 +35,7 @@ Don't include:
 
 End with your assessment: How confident are you these were genuine examples of [target topic]? Were any examples unclear or ambiguous? How reliable were the speakers in their descriptions?
 
-If no clear examples are found, simply state that.
-"""
+If no clear examples are found, simply state that."""
 
 DEFAULT_MODEL = "gemini-1.5-flash-002"
 DEFAULT_GCP_PROJECT = "my-gcp-project"
