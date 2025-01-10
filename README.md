@@ -133,12 +133,6 @@ output/
 └── analysis/   # Text files containing analysis results
 ```
 
-Each analysis file includes:
-- Overview of the audio content
-- Timestamped examples of target topics
-- Context and direct quotes
-- Confidence assessment of the findings
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
