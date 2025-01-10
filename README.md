@@ -77,6 +77,23 @@ uv run src/app.py
    - Specify the region (e.g., us-east1)
    - Provide path to credentials JSON file
 
+
+#### Using `.streamlit/secrets.toml`
+
+Store your credentials securely here. If present, the app will use these credentials automatically. Otherwise, users will be prompted to input them via the UI.
+
+Example `secrets.toml` file:
+```toml
+GEMINI_API_KEY = "your_gemini_api_key_here"
+
+[vertex_ai]
+project_id = "your_gcp_project_id"
+location = "your_gcp_location"
+credentials_file = "./path/to/credentials.json"
+```
+
+*Note: Users who prefer not to use secrets.toml can manually input their credentials through the app interface.*
+
 ### Example Prompt
 
 The default prompt template helps you structure your analysis:
