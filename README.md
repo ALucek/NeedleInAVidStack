@@ -21,14 +21,16 @@ Extracting and organizing content across vast video libraries remains a laboriou
 - Streamlit-based user interface
 - Output saved as text files for easy reference and downstream processing
 
-## Prerequisites
+
+
+## Installation (uv Reccomended)
+
+**Prerequisites**
 
 - Python 3.10 or higher
 - Access to either:
   - Google Gemini API key
   - Google Cloud Platform account with Vertex AI enabled
-
-## Installation (uv Reccomended)
 
 1. Clone the repository:
 ```bash
