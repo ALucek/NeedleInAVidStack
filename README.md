@@ -28,7 +28,7 @@ Extracting and organizing content across vast video libraries remains a laboriou
   - Google Gemini API key
   - Google Cloud Platform account with Vertex AI enabled
 
-## Installation
+## Installation (uv Reccomended)
 
 1. Clone the repository:
 ```bash
@@ -36,11 +36,9 @@ git clone https://github.com/ALucek/NeedleInAVidStack.git
 cd NeedleInAVidStack
 ```
 
-2. Install dependencies using uv:
+2. Install dependencies using [uv](https://docs.astral.sh/uv/):
 ```bash
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install -r requirements.txt
+uv sync
 ```
 
 ## Usage
@@ -60,7 +58,7 @@ uv run src/app.py
 
 4. Click "Convert Videos to Audio" to convert your videos to the proper Audio format
 
-5. Click "Analyze Audio Files" to start the analysis
+5. Click "Analyze Audio Files" to run the analysis
 
 ### API Configuration
 
@@ -129,6 +127,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 Todo:
 - Better interface
 - Clean up input/output methods
+- Fix weird error when uv runs streamlit app
 
 ## License
 

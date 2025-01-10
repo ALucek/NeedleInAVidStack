@@ -1,0 +1,5 @@
+google-cloud-aiplatform>=1.76.0
+google-generativeai>=0.8.3
+moviepy>=2.1.1
+pydub>=0.25.1
+streamlit>=1.41.1
