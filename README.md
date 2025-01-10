@@ -84,8 +84,9 @@ uv run src/app.py
 
 Store your credentials securely here. If present, the app will use these credentials automatically. Otherwise, users will be prompted to input them via the UI.
 
-Example `secrets.toml` file:
+
 ```toml
+# Example secrets file:
 GEMINI_API_KEY = "your_gemini_api_key_here"
 
 [vertex_ai]
