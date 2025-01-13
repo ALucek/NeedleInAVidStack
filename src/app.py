@@ -7,11 +7,12 @@ from video_processing import process_videos_in_directory
 from app_utils import (
     should_skip_analysis,
     save_analysis
-    # show_progress_bar  # No longer used
 )
 from analysis_utils import (
     analyze_with_vertex_ai,
-    analyze_with_gemini_api
+    analyze_with_gemini_api,
+    load_existing_analysis,
+    get_all_existing_analyses
 )
 
 
@@ -196,20 +197,67 @@ def render_video_to_audio():
             else:
                 st.error("Invalid folder path. Please enter a valid directory.")
 
+def render_analysis_viewer():
+    """
+    Renders a viewer for existing analysis files.
+    """
+    with st.expander("View Existing Analyses", expanded=True):
+        # Get all existing analyses
+        existing_analyses = get_all_existing_analyses()
+        
+        if not existing_analyses:
+            st.info("No existing analysis files found in output/analysis directory.")
+            return
+            
+        st.write(f"Found {len(existing_analyses)} existing analysis files.")
+        
+        # Create a selectbox for choosing which analysis to view
+        analysis_options = ["Select an analysis..."] + [audio_file for audio_file, _ in existing_analyses]
+        selected_analysis = st.selectbox(
+            "Choose an analysis to view:",
+            analysis_options
+        )
+        
+        if selected_analysis and selected_analysis != "Select an analysis...":
+            # Find the corresponding analysis file
+            selected_file = next(
+                (analysis_path for audio_file, analysis_path in existing_analyses 
+                 if audio_file == selected_analysis),
+                None
+            )
+            
+            if selected_file:
+                with open(selected_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    
+                # Create tabs for different view options
+                raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
+                
+                with raw_tab:
+                    st.text_area(
+                        label=f"Raw analysis for {selected_analysis}",
+                        value=content,
+                        height=300
+                    )
+                
+                with rendered_tab:
+                    st.markdown(content)
 
 def render_audio_analysis():
     with st.expander("Analyze Audio Files", expanded=True):
         skip_reanalysis = st.checkbox("Skip re-analysis if file already exists?", value=True)
-
-        if st.button("Run Analysis"):
-            # Check if any audio files are in session state
-            if not st.session_state.processed_audio_files:
-                st.warning("No audio files found in session state. Checking output/audio folder instead.")
-                
-                # Attempt to load existing audio from 'output/audio'
-                existing_audio_files = glob.glob("output/audio/*.mp3")
+        
+        # Check for existing files on load if not already in session state
+        if "processed_audio_files" not in st.session_state:
+            existing_audio_files = glob.glob("output/audio/*.mp3")
+            if existing_audio_files:
                 st.session_state.processed_audio_files = existing_audio_files
-
+                st.success(f"Found {len(existing_audio_files)} existing audio files in output/audio directory.")
+            else:
+                st.session_state.processed_audio_files = []
+                st.info("No audio files found in output/audio directory.")
+        
+        if st.button("Run Analysis"):
             audio_files = st.session_state.processed_audio_files
             if not audio_files:
                 st.warning("No audio files found to analyze. Please convert videos or ensure .mp3 files exist.")
@@ -223,13 +271,29 @@ def render_audio_analysis():
                     st.error("Please provide your Gemini API key.")
                 return
 
-            st.write(f"**Starting analysis for {len(audio_files)} audio files...**")
+            st.markdown("### Starting Analysis")
+            st.write(f"Processing {len(audio_files)} audio files...")
+            
             for audio_file in audio_files:
                 if skip_reanalysis and should_skip_analysis(audio_file, skip_reanalysis=True):
                     st.info(f"Skipping re-analysis for `{os.path.basename(audio_file)}` (analysis file exists).")
+                    
+                    # Display existing analysis
+                    exists, content = load_existing_analysis(audio_file)
+                    if exists:
+                        st.markdown(f"#### Existing Analysis: `{os.path.basename(audio_file)}`")
+                        raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
+                        with raw_tab:
+                            st.text_area(
+                                label=f"Raw analysis",
+                                value=content,
+                                height=200
+                            )
+                        with rendered_tab:
+                            st.markdown(content)
                     continue
 
-                st.write(f"Analyzing: `{os.path.basename(audio_file)}`")
+                st.markdown(f"#### Analyzing: `{os.path.basename(audio_file)}`")
                 try:
                     response_text = analyze_audio(
                         audio_file,
@@ -242,12 +306,19 @@ def render_audio_analysis():
                     )
                     save_analysis(audio_file, response_text)
                     
-                    st.write("**Analysis Result:**")
-                    st.text_area(
-                        label=f"Analysis for {os.path.basename(audio_file)}",
-                        value=response_text,
-                        height=200
-                    )
+                    # Create tabs for different view options
+                    raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
+                    
+                    with raw_tab:
+                        st.text_area(
+                            label=f"Raw analysis",
+                            value=response_text,
+                            height=200
+                        )
+                    
+                    with rendered_tab:
+                        st.markdown(response_text)
+                    
                     st.success(f"Saved analysis to output/analysis/{os.path.basename(audio_file).replace('.mp3', '_analysis.txt')}")
                 except Exception as e:
                     st.error(f"Failed to analyze {audio_file}. Error: {str(e)}")
@@ -270,6 +341,8 @@ def main():
     render_api_configuration()
     render_video_to_audio()
     render_audio_analysis()
+    render_analysis_viewer()
+
 
 
 if __name__ == "__main__":
