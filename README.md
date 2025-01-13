@@ -2,7 +2,7 @@
 
 <img src="NIAVS_logo.png" width=250>
 
-Extract, timestamp, and analyze specific content from video collections using Audio LLM-powered audio/video processing.
+Extract, timestamp, and analyze specific content from video collections using LLM-powered audio/video processing.
 
 ## Overview
 
