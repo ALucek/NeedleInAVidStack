@@ -6,7 +6,7 @@ Extract, timestamp, and analyze specific content from video collections using LL
 
 ## Overview
 
-Extracting and organizing content across vast video libraries remains a laborious and manual process. NeedleInAVidStack is a lightweight streamlit app that helps you quickly analyze video libraries by converting them to audio and using Google's Gemini AI models to identify specific content. Using video and audio understanding large language models allows us to efficiently automate this process to rapidly identify and timestamp specific content from semantic descriptions across video and audio formats.
+Extracting and organizing content across video libraries is a time-consuming manual process. NeedleInAVidStack is a lightweight Streamlit app that automates this task by converting videos to audio and using Google's Gemini AI models to identify specific content. Using large language models for video and audio understanding, users can rapidly locate and timestamp content by providing semantic descriptions of what they're looking for across their video collections.
 
 ## Features
 
@@ -143,6 +143,7 @@ Todo:
 - Clean up input/output methods
 - Pressure test with long/many videos
 - Fix weird error when uv closes streamlit app
+- Choice between audio and actual video processing
 
 ## License
 
