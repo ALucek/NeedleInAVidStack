@@ -27,7 +27,8 @@ Extracting and organizing content across video libraries is a time-consuming man
 
 **Prerequisites**
 
-- Python 3.10 or higher
+- Python 3.10
+- [FFMPEG](https://www.ffmpeg.org/) Installed
 - Access to either:
   - Google Gemini API key
   - Google Cloud Platform account with Vertex AI enabled
