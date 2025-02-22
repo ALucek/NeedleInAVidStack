@@ -7,7 +7,9 @@ from video_processing import process_videos_in_directory
 from app_utils import should_skip_analysis, save_analysis
 from analysis_utils import (
     analyze_audio_with_genai,
-    initialize_genai_client
+    initialize_genai_client,
+    load_existing_analysis,
+    get_all_existing_analyses
 )
 
 ##############################################################################
@@ -72,7 +74,6 @@ def render_api_configuration():
             credentials = st.text_input("Gemini API Key:", type="password", help="Enter your Gemini API key")
             project_id = None
             location = None
-
         else:
             col1, col2 = st.columns(2)
             with col1:
@@ -117,11 +118,11 @@ def render_video_to_audio():
 def render_audio_analysis():
     with st.expander("Analyze Audio Files", expanded=True):
         skip_reanalysis = st.checkbox("Skip re-analysis if file already exists?", value=True)
-
-        if "processed_audio_files" not in st.session_state:
-            existing_audio_files = glob.glob("output/audio/*.mp3")
-            st.session_state.processed_audio_files = existing_audio_files if existing_audio_files else []
-
+        
+        # Always check for existing audio files on disk
+        existing_audio_files = glob.glob("output/audio/*.mp3")
+        st.session_state.processed_audio_files = existing_audio_files if existing_audio_files else []
+        
         if st.button("Run Analysis"):
             audio_files = st.session_state.processed_audio_files
             if not audio_files:
@@ -143,8 +144,22 @@ def render_audio_analysis():
             for audio_file in audio_files:
                 if skip_reanalysis and should_skip_analysis(audio_file, skip_reanalysis=True):
                     st.info(f"Skipping `{os.path.basename(audio_file)}` (analysis file exists).")
+                    exists, content = load_existing_analysis(audio_file)
+                    if exists:
+                        st.markdown("---")
+                        st.markdown(f"#### Existing Analysis: `{os.path.basename(audio_file)}`")
+                        raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
+                        with raw_tab:
+                            st.text_area(
+                                label="Raw analysis",
+                                value=content,
+                                height=200
+                            )
+                        with rendered_tab:
+                            st.markdown(content)
                     continue
-
+                
+                st.markdown("---")
                 st.markdown(f"#### Analyzing: `{os.path.basename(audio_file)}`")
                 try:
                     response_text = analyze_audio_with_genai(
@@ -155,12 +170,56 @@ def render_audio_analysis():
                     )
                     save_analysis(audio_file, response_text)
 
-                    st.text_area("Raw analysis", value=response_text, height=200)
+                    raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
+                    with raw_tab:
+                        st.text_area("Raw analysis", value=response_text, height=200)
+                    with rendered_tab:
+                        st.markdown(response_text)
+
                     st.success(f"Saved analysis for `{os.path.basename(audio_file)}`")
                 except Exception as e:
                     st.error(f"Failed to analyze {audio_file}. Error: {str(e)}")
 
             st.success("Analysis complete!")
+
+
+def render_analysis_viewer():
+    """
+    Renders a viewer for existing analysis files.
+    """
+    with st.expander("View Existing Analyses", expanded=True):
+        existing_analyses = get_all_existing_analyses()
+        
+        if not existing_analyses:
+            st.info("No existing analysis files found in output/analysis directory.")
+            return
+            
+        st.write(f"Found {len(existing_analyses)} existing analysis files.")
+        
+        # Create a selectbox for choosing which analysis to view
+        analysis_options = ["Select an analysis..."] + [audio_file for audio_file, _ in existing_analyses]
+        selected_analysis = st.selectbox("Choose an analysis to view:", analysis_options)
+        
+        if selected_analysis and selected_analysis != "Select an analysis...":
+            selected_file = next(
+                (analysis_path for audio_file, analysis_path in existing_analyses 
+                 if audio_file == selected_analysis),
+                None
+            )
+            
+            if selected_file:
+                with open(selected_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    
+                raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
+                with raw_tab:
+                    st.text_area(
+                        label=f"Raw analysis for {selected_analysis}",
+                        value=content,
+                        height=300
+                    )
+                with rendered_tab:
+                    st.markdown(content)
 
 
 ##############################################################################
@@ -174,6 +233,8 @@ def main():
     render_api_configuration()
     render_video_to_audio()
     render_audio_analysis()
+    render_analysis_viewer()
+
 
 if __name__ == "__main__":
     # UV run snippet
