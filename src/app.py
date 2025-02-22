@@ -4,17 +4,11 @@ import streamlit as st
 
 # Local imports
 from video_processing import process_videos_in_directory
-from app_utils import (
-    should_skip_analysis,
-    save_analysis
-)
+from app_utils import should_skip_analysis, save_analysis
 from analysis_utils import (
-    analyze_with_vertex_ai,
-    analyze_with_gemini_api,
-    load_existing_analysis,
-    get_all_existing_analyses
+    analyze_audio_with_genai,
+    initialize_genai_client
 )
-
 
 ##############################################################################
 # Constants and Defaults
@@ -38,73 +32,9 @@ End with your assessment: How confident are you these were genuine examples of [
 
 If no clear examples are found, simply state that."""
 
-DEFAULT_MODEL = "gemini-1.5-flash-002"
+DEFAULT_MODEL = "gemini-2.0-flash-001"
 DEFAULT_GCP_PROJECT = "my-gcp-project"
 DEFAULT_GCP_LOCATION = "us-east1"
-
-
-##############################################################################
-# Helper Functions
-##############################################################################
-def analyze_audio(
-    audio_path,
-    prompt,
-    api_choice,
-    credentials,
-    model_name=DEFAULT_MODEL,
-    project_id=DEFAULT_GCP_PROJECT,
-    location=DEFAULT_GCP_LOCATION
-):
-    """
-    Analyzes audio using the selected API and returns text.
-    """
-    if api_choice == "Vertex AI":
-        response_text = analyze_with_vertex_ai(
-            audio_path,
-            prompt,
-            credentials_path=credentials,
-            project_id=project_id,
-            location=location,
-            model_name=model_name
-        )
-    else:
-        # Gemini API
-        response_text = analyze_with_gemini_api(
-            audio_path,
-            prompt,
-            api_key=credentials,
-            model_name=model_name
-        )
-    return response_text
-
-
-def get_gemini_api_key_from_secrets():
-    """
-    Safely retrieve the GEMINI_API_KEY from Streamlit secrets if it exists.
-    If secrets.toml doesn't exist or doesn't contain GEMINI_API_KEY, return None.
-    """
-    if "GEMINI_API_KEY" in st.secrets and st.secrets["GEMINI_API_KEY"]:
-        return st.secrets["GEMINI_API_KEY"]
-    return None
-
-
-def get_vertex_secrets():
-    """
-    Safely retrieve Vertex AI secrets from Streamlit secrets if they exist.
-    Returns a dict with keys: project_id, location, credentials_file (or empty).
-    """
-    if "vertex_ai" in st.secrets:
-        return {
-            "project_id": st.secrets["vertex_ai"].get("project_id", DEFAULT_GCP_PROJECT),
-            "location": st.secrets["vertex_ai"].get("location", DEFAULT_GCP_LOCATION),
-            "credentials_file": st.secrets["vertex_ai"].get("credentials_file", "./gcp_credentials.json")
-        }
-    else:
-        return {
-            "project_id": DEFAULT_GCP_PROJECT,
-            "location": DEFAULT_GCP_LOCATION,
-            "credentials_file": "./gcp_credentials.json"
-        }
 
 
 ##############################################################################
@@ -112,11 +42,8 @@ def get_vertex_secrets():
 ##############################################################################
 def render_prompt_input():
     with st.expander("Prompt Configuration", expanded=True):
-        # Initialize session state if not present
         if "analysis_prompt" not in st.session_state:
             st.session_state.analysis_prompt = DEFAULT_PROMPT
-
-        st.write("Customize the analysis prompt below. Use the button to reset it to the default template.")
 
         if st.button("Reset to Default Prompt"):
             st.session_state.analysis_prompt = DEFAULT_PROMPT
@@ -135,40 +62,30 @@ def render_api_configuration():
             ["Gemini API", "Vertex AI"],
             help="Select which API to use for analysis."
         )
-        
+
         model_name = st.text_input("Model Name:", value=DEFAULT_MODEL)
 
         st.write("---")
         st.markdown("#### Credentials")
-        
-        if api_choice == "Gemini API":
-            # Check if there's a secrets-based API key
-            gemini_secrets_key = get_gemini_api_key_from_secrets()
-            if gemini_secrets_key:
-                st.info("Using GEMINI_API_KEY from secrets.toml.")
-                credentials = gemini_secrets_key
-            else:
-                credentials = st.text_input("Gemini API Key:", type="password", help="Enter your Gemini API key")
 
+        if api_choice == "Gemini API":
+            credentials = st.text_input("Gemini API Key:", type="password", help="Enter your Gemini API key")
             project_id = None
             location = None
 
         else:
-            # Vertex AI
-            vertex_info = get_vertex_secrets()  # fetch defaults or secrets-based
             col1, col2 = st.columns(2)
             with col1:
-                project_id = st.text_input("GCP Project ID:", value=vertex_info["project_id"])
+                project_id = st.text_input("GCP Project ID:", value=DEFAULT_GCP_PROJECT)
             with col2:
-                location = st.text_input("GCP Location:", value=vertex_info["location"])
+                location = st.text_input("GCP Location:", value=DEFAULT_GCP_LOCATION)
 
             credentials = st.text_input(
                 "Path to GCP Service Account JSON:",
-                value=vertex_info["credentials_file"],
+                value="./gcp_credentials.json",
                 help="Enter path to your GCP service account credentials JSON file"
             )
 
-        # Store them in session state
         st.session_state.api_choice = api_choice
         st.session_state.credentials = credentials
         st.session_state.project_id = project_id
@@ -178,9 +95,8 @@ def render_api_configuration():
 
 def render_video_to_audio():
     with st.expander("Video to Audio Conversion", expanded=True):
-        video_folder = st.text_input("Video Folder Path:", "./videos",
-                                     help="Enter the path to a folder with video files")
-        
+        video_folder = st.text_input("Video Folder Path:", "./videos")
+
         if "processed_audio_files" not in st.session_state:
             st.session_state.processed_audio_files = []
 
@@ -193,133 +109,54 @@ def render_video_to_audio():
                 if st.session_state.processed_audio_files:
                     st.success(f"Converted {len(st.session_state.processed_audio_files)} videos to audio.")
                 else:
-                    st.warning("No videos were converted. Check logs for details.")
+                    st.warning("No videos were converted.")
             else:
                 st.error("Invalid folder path. Please enter a valid directory.")
 
-def render_analysis_viewer():
-    """
-    Renders a viewer for existing analysis files.
-    """
-    with st.expander("View Existing Analyses", expanded=True):
-        # Get all existing analyses
-        existing_analyses = get_all_existing_analyses()
-        
-        if not existing_analyses:
-            st.info("No existing analysis files found in output/analysis directory.")
-            return
-            
-        st.write(f"Found {len(existing_analyses)} existing analysis files.")
-        
-        # Create a selectbox for choosing which analysis to view
-        analysis_options = ["Select an analysis..."] + [audio_file for audio_file, _ in existing_analyses]
-        selected_analysis = st.selectbox(
-            "Choose an analysis to view:",
-            analysis_options
-        )
-        
-        if selected_analysis and selected_analysis != "Select an analysis...":
-            # Find the corresponding analysis file
-            selected_file = next(
-                (analysis_path for audio_file, analysis_path in existing_analyses 
-                 if audio_file == selected_analysis),
-                None
-            )
-            
-            if selected_file:
-                with open(selected_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    
-                # Create tabs for different view options
-                raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
-                
-                with raw_tab:
-                    st.text_area(
-                        label=f"Raw analysis for {selected_analysis}",
-                        value=content,
-                        height=300
-                    )
-                
-                with rendered_tab:
-                    st.markdown(content)
 
 def render_audio_analysis():
     with st.expander("Analyze Audio Files", expanded=True):
         skip_reanalysis = st.checkbox("Skip re-analysis if file already exists?", value=True)
-        
-        # Check for existing files on load if not already in session state
+
         if "processed_audio_files" not in st.session_state:
             existing_audio_files = glob.glob("output/audio/*.mp3")
-            if existing_audio_files:
-                st.session_state.processed_audio_files = existing_audio_files
-                st.success(f"Found {len(existing_audio_files)} existing audio files in output/audio directory.")
-            else:
-                st.session_state.processed_audio_files = []
-                st.info("No audio files found in output/audio directory.")
-        
+            st.session_state.processed_audio_files = existing_audio_files if existing_audio_files else []
+
         if st.button("Run Analysis"):
             audio_files = st.session_state.processed_audio_files
             if not audio_files:
-                st.warning("No audio files found to analyze. Please convert videos or ensure .mp3 files exist.")
+                st.warning("No audio files found to analyze.")
                 return
 
-            # Check credentials
             if not st.session_state.credentials:
-                if st.session_state.api_choice == "Vertex AI":
-                    st.error("Please provide path to your GCP credentials JSON file.")
-                else:
-                    st.error("Please provide your Gemini API key.")
+                st.error("Please provide your API key or GCP credentials JSON file.")
                 return
+
+            client = initialize_genai_client(
+                st.session_state.api_choice,
+                st.session_state.credentials,
+                st.session_state.project_id,
+                st.session_state.location
+            )
 
             st.markdown("### Starting Analysis")
-            st.write(f"Processing {len(audio_files)} audio files...")
-            
             for audio_file in audio_files:
                 if skip_reanalysis and should_skip_analysis(audio_file, skip_reanalysis=True):
-                    st.info(f"Skipping re-analysis for `{os.path.basename(audio_file)}` (analysis file exists).")
-                    
-                    # Display existing analysis
-                    exists, content = load_existing_analysis(audio_file)
-                    if exists:
-                        st.markdown(f"#### Existing Analysis: `{os.path.basename(audio_file)}`")
-                        raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
-                        with raw_tab:
-                            st.text_area(
-                                label=f"Raw analysis",
-                                value=content,
-                                height=200
-                            )
-                        with rendered_tab:
-                            st.markdown(content)
+                    st.info(f"Skipping `{os.path.basename(audio_file)}` (analysis file exists).")
                     continue
 
                 st.markdown(f"#### Analyzing: `{os.path.basename(audio_file)}`")
                 try:
-                    response_text = analyze_audio(
+                    response_text = analyze_audio_with_genai(
                         audio_file,
                         st.session_state.analysis_prompt,
-                        st.session_state.api_choice,
-                        st.session_state.credentials,
-                        model_name=st.session_state.model_name,
-                        project_id=st.session_state.project_id,
-                        location=st.session_state.location
+                        client,
+                        st.session_state.model_name
                     )
                     save_analysis(audio_file, response_text)
-                    
-                    # Create tabs for different view options
-                    raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
-                    
-                    with raw_tab:
-                        st.text_area(
-                            label=f"Raw analysis",
-                            value=response_text,
-                            height=200
-                        )
-                    
-                    with rendered_tab:
-                        st.markdown(response_text)
-                    
-                    st.success(f"Saved analysis to output/analysis/{os.path.basename(audio_file).replace('.mp3', '_analysis.txt')}")
+
+                    st.text_area("Raw analysis", value=response_text, height=200)
+                    st.success(f"Saved analysis for `{os.path.basename(audio_file)}`")
                 except Exception as e:
                     st.error(f"Failed to analyze {audio_file}. Error: {str(e)}")
 
@@ -331,19 +168,12 @@ def render_audio_analysis():
 ##############################################################################
 def main():
     st.title("NeedleInAVidStack")
-    st.write(
-        "Bulk process video audio to find specific examples, timestamps, or segments "
-        "based on semantic descriptions via Google Gemini or Vertex AI."
-    )
+    st.write("Bulk process video audio to find specific examples, timestamps, or segments using Google Gen AI.")
 
-    # Render UI sections
     render_prompt_input()
     render_api_configuration()
     render_video_to_audio()
     render_audio_analysis()
-    render_analysis_viewer()
-
-
 
 if __name__ == "__main__":
     # UV run snippet
