@@ -95,10 +95,33 @@ GEMINI_API_KEY = "your_gemini_api_key_here"
 [vertex_ai]
 project_id = "your_gcp_project_id"
 location = "your_gcp_location"
-credentials_file = "./path/to/credentials.json"
+credentials_file = "/absolute/path/to/credentials.json"
 ```
 
 *Note: Users who prefer not to use secrets.toml can manually input their credentials through the app interface.*
+
+## Prompt Management
+
+You can pre-load a custom analysis prompt at startup via `.streamlit/secrets.toml`. The app will use your prompt instead of the built-in default when it detects one of the following inline keys (checked in this order):
+
+- `ANALYSIS_PROMPT`
+- `analysis_prompt`
+- `PROMPT`
+
+Behavior:
+- The override happens only when the current session prompt is empty or still equals the built-in default; users can still edit the prompt in the UI at any time.
+
+Example:
+
+```toml
+# Inline string prompt
+ANALYSIS_PROMPT = """
+Analyze this audio for [target topic]...
+"""
+```
+
+Tip:
+- All prompt configuration works alongside the credentials configuration shown above.
 
 ## Example Prompt
 

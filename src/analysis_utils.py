@@ -14,7 +14,6 @@ from paths import ANALYSIS_DIR, ensure_output_dirs
 # Initialize Gen AI Client
 ###############################################################################
 
-
 def initialize_genai_client(api_choice: str, credentials: str | None, project_id: str | None, location: str | None):
     """Initialise a Google Gen AI client for Gemini API or Vertex AI."""
 

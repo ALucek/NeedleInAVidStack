@@ -47,7 +47,7 @@ End with your assessment: How confident are you these were genuine examples of [
 
 If no clear examples are found, simply state that."""
 
-DEFAULT_MODEL = "gemini-2.0-flash-001"
+DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_GCP_PROJECT = "my-gcp-project"
 DEFAULT_GCP_LOCATION = "us-east1"
 
@@ -62,6 +62,18 @@ def _apply_secrets() -> None:
     secrets: Dict[str, str] = getattr(st, "secrets", {})
     if not secrets:
         return
+
+    # If a prompt is provided in secrets, use it instead of the default.
+    if (
+        not st.session_state.get("PROMPT")
+        or st.session_state.analysis_prompt == DEFAULT_PROMPT
+    ):
+        prompt_value = (
+            secrets.get("PROMPT")
+        )
+
+        if prompt_value:
+            st.session_state.analysis_prompt = str(prompt_value)
 
     if not st.session_state.get("credentials") and secrets.get("GEMINI_API_KEY"):
         st.session_state.api_choice = "Gemini API"
@@ -302,7 +314,6 @@ if __name__ == "__main__":
             is_hello=False,
             args=[],
             flag_options={},
-            main=main,
         )
     else:
         main()
