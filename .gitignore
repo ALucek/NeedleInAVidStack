@@ -45,4 +45,4 @@ venv.bak/
 testing_files/
 videos/
 output/
-streamlit/
+.streamlit/
