@@ -85,6 +85,8 @@ uv run src/app.py
 
 Store your credentials securely here. If present, the app will use these credentials automatically. Otherwise, users will be prompted to input them via the UI.
 
+When the app starts it now pre-populates the configuration panel with any values it can resolve from `st.secrets`. This makes it easy to ship a ready-to-run deployment without exposing keys in the interface while still letting users override the values during a session.
+
 
 ```toml
 # Example secrets file:

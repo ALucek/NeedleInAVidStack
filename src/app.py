@@ -1,21 +1,34 @@
-import os
-import glob
+"""Streamlit UI for the NeedleInAVidStack application."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Dict
+
 import streamlit as st
 
-# Local imports
-from video_processing import process_videos_in_directory
-from app_utils import should_skip_analysis, save_analysis
 from analysis_utils import (
     analyze_audio_with_genai,
+    get_all_existing_analyses,
     initialize_genai_client,
     load_existing_analysis,
-    get_all_existing_analyses
 )
+from app_utils import (
+    error_message,
+    info_message,
+    list_audio_files,
+    render_markdown,
+    save_analysis,
+    should_skip_analysis,
+    show_text_area,
+    success_message,
+    warning_message,
+)
+from video_processing import process_videos_in_directory
 
-##############################################################################
+###############################################################################
 # Constants and Defaults
-##############################################################################
-DEFAULT_PROMPT = """Analyze this audio for specific examples of [target topic] - these are instances where [explain what you're looking for]. 
+###############################################################################
+DEFAULT_PROMPT = """Analyze this audio for specific examples of [target topic] - these are instances where [explain what you're looking for].
 
 Please start with a brief overview of what the audio is about.
 
@@ -38,194 +51,238 @@ DEFAULT_MODEL = "gemini-2.0-flash-001"
 DEFAULT_GCP_PROJECT = "my-gcp-project"
 DEFAULT_GCP_LOCATION = "us-east1"
 
+###############################################################################
+# Session state helpers
+###############################################################################
 
-##############################################################################
+
+def _apply_secrets() -> None:
+    """Populate session state from ``st.secrets`` when available."""
+
+    secrets: Dict[str, str] = getattr(st, "secrets", {})
+    if not secrets:
+        return
+
+    if not st.session_state.get("credentials") and secrets.get("GEMINI_API_KEY"):
+        st.session_state.api_choice = "Gemini API"
+        st.session_state.credentials = secrets["GEMINI_API_KEY"]
+
+    vertex_secrets = secrets.get("vertex_ai", {})
+    if vertex_secrets:
+        st.session_state.project_id = vertex_secrets.get("project_id", st.session_state.project_id)
+        st.session_state.location = vertex_secrets.get("location", st.session_state.location)
+        if vertex_secrets.get("credentials_file") and not st.session_state.get("credentials"):
+            st.session_state.api_choice = "Vertex AI"
+            st.session_state.credentials = vertex_secrets.get("credentials_file")
+
+
+def initialise_session_state() -> None:
+    """Ensure all keys used by the UI exist in ``st.session_state``."""
+
+    defaults = {
+        "analysis_prompt": DEFAULT_PROMPT,
+        "api_choice": "Gemini API",
+        "credentials": "",
+        "project_id": DEFAULT_GCP_PROJECT,
+        "location": DEFAULT_GCP_LOCATION,
+        "model_name": DEFAULT_MODEL,
+        "processed_audio_files": [],
+    }
+
+    for key, value in defaults.items():
+        st.session_state.setdefault(key, value)
+
+    if not st.session_state.get("_secrets_applied"):
+        _apply_secrets()
+        st.session_state._secrets_applied = True
+
+
+###############################################################################
 # UI Sections
-##############################################################################
-def render_prompt_input():
-    with st.expander("Prompt Configuration", expanded=True):
-        if "analysis_prompt" not in st.session_state:
-            st.session_state.analysis_prompt = DEFAULT_PROMPT
+###############################################################################
 
+
+def render_prompt_input() -> None:
+    with st.expander("Prompt Configuration", expanded=True):
         if st.button("Reset to Default Prompt"):
             st.session_state.analysis_prompt = DEFAULT_PROMPT
 
         st.session_state.analysis_prompt = st.text_area(
             "Analysis Prompt:",
             value=st.session_state.analysis_prompt,
-            height=250
+            height=250,
         )
 
 
-def render_api_configuration():
+def render_api_configuration() -> None:
     with st.expander("API Configuration", expanded=True):
-        api_choice = st.radio(
+        st.session_state.api_choice = st.radio(
             "Choose API:",
             ["Gemini API", "Vertex AI"],
-            help="Select which API to use for analysis."
+            index=0 if st.session_state.api_choice == "Gemini API" else 1,
+            help="Select which API to use for analysis.",
         )
 
-        model_name = st.text_input("Model Name:", value=DEFAULT_MODEL)
+        st.session_state.model_name = st.text_input("Model Name:", value=st.session_state.model_name)
 
         st.write("---")
         st.markdown("#### Credentials")
 
-        if api_choice == "Gemini API":
-            credentials = st.text_input("Gemini API Key:", type="password", help="Enter your Gemini API key")
-            project_id = None
-            location = None
+        if st.session_state.api_choice == "Gemini API":
+            st.session_state.credentials = st.text_input(
+                "Gemini API Key:",
+                value=st.session_state.credentials,
+                type="password",
+                help="Enter your Gemini API key",
+            )
+            st.session_state.project_id = None
+            st.session_state.location = None
         else:
             col1, col2 = st.columns(2)
             with col1:
-                project_id = st.text_input("GCP Project ID:", value=DEFAULT_GCP_PROJECT)
+                st.session_state.project_id = st.text_input(
+                    "GCP Project ID:", value=st.session_state.project_id or ""
+                )
             with col2:
-                location = st.text_input("GCP Location:", value=DEFAULT_GCP_LOCATION)
+                st.session_state.location = st.text_input(
+                    "GCP Location:", value=st.session_state.location or ""
+                )
 
-            credentials = st.text_input(
+            st.session_state.credentials = st.text_input(
                 "Path to GCP Service Account JSON:",
-                value="./gcp_credentials.json",
-                help="Enter path to your GCP service account credentials JSON file"
+                value=st.session_state.credentials,
+                help="Enter path to your GCP service account credentials JSON file",
             )
 
-        st.session_state.api_choice = api_choice
-        st.session_state.credentials = credentials
-        st.session_state.project_id = project_id
-        st.session_state.location = location
-        st.session_state.model_name = model_name
 
-
-def render_video_to_audio():
+def render_video_to_audio() -> None:
     with st.expander("Video to Audio Conversion", expanded=True):
         video_folder = st.text_input("Video Folder Path:", "./videos")
 
-        if "processed_audio_files" not in st.session_state:
-            st.session_state.processed_audio_files = []
-
         if st.button("Convert Videos to Audio"):
-            if os.path.isdir(video_folder):
+            folder = Path(video_folder)
+            if folder.is_dir():
                 with st.spinner("Converting videos to audio..."):
-                    audio_files = process_videos_in_directory(video_folder)
+                    audio_files = process_videos_in_directory(folder)
                     st.session_state.processed_audio_files = audio_files
-                
+
                 if st.session_state.processed_audio_files:
-                    st.success(f"Converted {len(st.session_state.processed_audio_files)} videos to audio.")
+                    success_message(
+                        f"Converted {len(st.session_state.processed_audio_files)} videos to audio."
+                    )
                 else:
-                    st.warning("No videos were converted.")
+                    warning_message("No videos were converted.")
             else:
-                st.error("Invalid folder path. Please enter a valid directory.")
+                error_message("Invalid folder path. Please enter a valid directory.")
 
 
-def render_audio_analysis():
+def _render_analysis_tabs(display_name: str, content: str) -> None:
+    raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
+    with raw_tab:
+        show_text_area(label=f"Raw analysis for {display_name}", value=content, height=200)
+    with rendered_tab:
+        render_markdown(content)
+
+
+def render_audio_analysis() -> None:
     with st.expander("Analyze Audio Files", expanded=True):
         skip_reanalysis = st.checkbox("Skip re-analysis if file already exists?", value=True)
-        
-        # Always check for existing audio files on disk
-        existing_audio_files = glob.glob("output/audio/*.mp3")
-        st.session_state.processed_audio_files = existing_audio_files if existing_audio_files else []
-        
+
+        existing_audio_files = list_audio_files()
+        if existing_audio_files:
+            st.session_state.processed_audio_files = existing_audio_files
+
         if st.button("Run Analysis"):
             audio_files = st.session_state.processed_audio_files
             if not audio_files:
-                st.warning("No audio files found to analyze.")
+                warning_message("No audio files found to analyze.")
                 return
 
             if not st.session_state.credentials:
-                st.error("Please provide your API key or GCP credentials JSON file.")
+                error_message("Please provide your API key or GCP credentials JSON file.")
                 return
 
-            client = initialize_genai_client(
-                st.session_state.api_choice,
-                st.session_state.credentials,
-                st.session_state.project_id,
-                st.session_state.location
-            )
+            try:
+                client = initialize_genai_client(
+                    st.session_state.api_choice,
+                    st.session_state.credentials,
+                    st.session_state.project_id,
+                    st.session_state.location,
+                )
+            except RuntimeError as exc:
+                error_message(str(exc))
+                return
 
             st.markdown("### Starting Analysis")
             for audio_file in audio_files:
+                audio_name = Path(audio_file).name
+
                 if skip_reanalysis and should_skip_analysis(audio_file, skip_reanalysis=True):
-                    st.info(f"Skipping `{os.path.basename(audio_file)}` (analysis file exists).")
+                    info_message(f"Skipping `{audio_name}` (analysis file exists).")
                     exists, content = load_existing_analysis(audio_file)
-                    if exists:
+                    if exists and content:
                         st.markdown("---")
-                        st.markdown(f"#### Existing Analysis: `{os.path.basename(audio_file)}`")
-                        raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
-                        with raw_tab:
-                            st.text_area(
-                                label="Raw analysis",
-                                value=content,
-                                height=200
-                            )
-                        with rendered_tab:
-                            st.markdown(content)
+                        st.markdown(f"#### Existing Analysis: `{audio_name}`")
+                        _render_analysis_tabs(audio_name, content)
                     continue
-                
+
                 st.markdown("---")
-                st.markdown(f"#### Analyzing: `{os.path.basename(audio_file)}`")
+                st.markdown(f"#### Analyzing: `{audio_name}`")
                 try:
                     response_text = analyze_audio_with_genai(
                         audio_file,
                         st.session_state.analysis_prompt,
                         client,
-                        st.session_state.model_name
+                        st.session_state.model_name,
                     )
-                    save_analysis(audio_file, response_text)
+                except RuntimeError as exc:
+                    error_message(f"Failed to analyze {audio_file}. Error: {exc}")
+                    continue
 
-                    raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
-                    with raw_tab:
-                        st.text_area("Raw analysis", value=response_text, height=200)
-                    with rendered_tab:
-                        st.markdown(response_text)
+                save_analysis(audio_file, response_text)
+                _render_analysis_tabs(audio_name, response_text)
+                success_message(f"Saved analysis for `{audio_name}`")
 
-                    st.success(f"Saved analysis for `{os.path.basename(audio_file)}`")
-                except Exception as e:
-                    st.error(f"Failed to analyze {audio_file}. Error: {str(e)}")
-
-            st.success("Analysis complete!")
+            success_message("Analysis complete!")
 
 
-def render_analysis_viewer():
-    """
-    Renders a viewer for existing analysis files.
-    """
+def render_analysis_viewer() -> None:
+    """Renders a viewer for existing analysis files."""
+
     with st.expander("View Existing Analyses", expanded=True):
         existing_analyses = get_all_existing_analyses()
-        
+
         if not existing_analyses:
-            st.info("No existing analysis files found in output/analysis directory.")
+            info_message("No existing analysis files found in output/analysis directory.")
             return
-            
+
         st.write(f"Found {len(existing_analyses)} existing analysis files.")
-        
-        # Create a selectbox for choosing which analysis to view
         analysis_options = ["Select an analysis..."] + [audio_file for audio_file, _ in existing_analyses]
         selected_analysis = st.selectbox("Choose an analysis to view:", analysis_options)
-        
+
         if selected_analysis and selected_analysis != "Select an analysis...":
             selected_file = next(
-                (analysis_path for audio_file, analysis_path in existing_analyses 
-                 if audio_file == selected_analysis),
-                None
+                (
+                    analysis_path
+                    for audio_file, analysis_path in existing_analyses
+                    if audio_file == selected_analysis
+                ),
+                None,
             )
-            
-            if selected_file:
-                with open(selected_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    
-                raw_tab, rendered_tab = st.tabs(["Raw Text", "Rendered Markdown"])
-                with raw_tab:
-                    st.text_area(
-                        label=f"Raw analysis for {selected_analysis}",
-                        value=content,
-                        height=300
-                    )
-                with rendered_tab:
-                    st.markdown(content)
+
+            if selected_file and selected_file.exists():
+                content = selected_file.read_text(encoding="utf-8")
+                _render_analysis_tabs(selected_analysis, content)
 
 
-##############################################################################
+###############################################################################
 # Main Streamlit App
-##############################################################################
-def main():
+###############################################################################
+
+
+def main() -> None:
+    initialise_session_state()
+
     st.title("NeedleInAVidStack")
     st.write("Bulk process video audio to find specific examples, timestamps, or segments using Google Gen AI.")
 
@@ -237,8 +294,15 @@ def main():
 
 
 if __name__ == "__main__":
-    # UV run snippet
-    if "__streamlitmagic__" not in locals():
+    if "__streamlitmagic__" not in globals():
         import streamlit.web.bootstrap
-        streamlit.web.bootstrap.run(__file__, False, [], {})
-    main()
+
+        streamlit.web.bootstrap.run(
+            __file__,
+            is_hello=False,
+            args=[],
+            flag_options={},
+            main=main,
+        )
+    else:
+        main()
