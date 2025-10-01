@@ -83,45 +83,33 @@ uv run src/app.py
 
 #### Using `.streamlit/secrets.toml`
 
-Store your credentials securely here. If present, the app will use these credentials automatically. Otherwise, users will be prompted to input them via the UI.
-
-When the app starts it now pre-populates the configuration panel with any values it can resolve from `st.secrets`. This makes it easy to ship a ready-to-run deployment without exposing keys in the interface while still letting users override the values during a session.
-
+The app reads secrets via Streamlit's `st.secrets`, which is automatically loaded from `.streamlit/secrets.toml` at runtime. If present, these values pre-populate the UI and can be overridden during the session. If no secrets are provided, you can enter everything manually in the interface.
 
 ```toml
-# Example secrets file:
+# .streamlit/secrets.toml
+
+# Optional: Pre-load a custom analysis prompt used at startup.
+# If provided, it replaces the built-in default prompt.
+PROMPT = """
+Analyze this audio for [target topic]...
+"""
+
+# For Gemini API (optional)
 GEMINI_API_KEY = "your_gemini_api_key_here"
 
+# For Vertex AI (optional)
 [vertex_ai]
 project_id = "your_gcp_project_id"
 location = "your_gcp_location"
 credentials_file = "/absolute/path/to/credentials.json"
 ```
 
-*Note: Users who prefer not to use secrets.toml can manually input their credentials through the app interface.*
+Notes:
+- If `PROMPT` is defined, it is used at startup unless you change it in the UI.
+- If `GEMINI_API_KEY` is present, the app defaults to Gemini API mode.
+- If `[vertex_ai]` values are present (and `credentials_file` is set), the app defaults to Vertex AI mode.
 
-## Prompt Management
-
-You can pre-load a custom analysis prompt at startup via `.streamlit/secrets.toml`. The app will use your prompt instead of the built-in default when it detects one of the following inline keys (checked in this order):
-
-- `ANALYSIS_PROMPT`
-- `analysis_prompt`
-- `PROMPT`
-
-Behavior:
-- The override happens only when the current session prompt is empty or still equals the built-in default; users can still edit the prompt in the UI at any time.
-
-Example:
-
-```toml
-# Inline string prompt
-ANALYSIS_PROMPT = """
-Analyze this audio for [target topic]...
-"""
-```
-
-Tip:
-- All prompt configuration works alongside the credentials configuration shown above.
+Users who prefer not to use `secrets.toml` can manually input credentials and prompts through the app interface.
 
 ## Example Prompt
 
