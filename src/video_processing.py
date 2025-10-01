@@ -1,110 +1,86 @@
-import os
-from moviepy import VideoFileClip
+"""Utilities for turning videos into audio clips."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Iterable, List
+
+from moviepy.editor import VideoFileClip
 from pydub import AudioSegment
 
-def ensure_directories():
-    """
-    Ensure that both audio and analysis output directories exist.
-    
-    Returns:
-        tuple: (audio_dir, analysis_dir)
-    """
-    audio_dir = "output/audio"
-    analysis_dir = "output/analysis"
-    
-    os.makedirs(audio_dir, exist_ok=True)
-    os.makedirs(analysis_dir, exist_ok=True)
-    
-    return audio_dir, analysis_dir
+from paths import AUDIO_DIR, ensure_output_dirs
+
+# Supported video file extensions.
+VIDEO_EXTENSIONS: tuple[str, ...] = (".mp4", ".avi", ".mov", ".mkv")
 
 
-def video_to_audio(video_path, max_size_mb=15):
-    """
-    Convert video to audio (MP3) and ensure the output is under the specified size limit.
-    Saves the result in the 'output/audio/' subdirectory.
-    
-    Args:
-        video_path (str): Path to input video file.
-        max_size_mb (int): Maximum size in megabytes for the output audio.
-    
-    Returns:
-        str | None: Path to the processed audio file (MP3) or None if there's an error.
-    """
-    audio_dir, _ = ensure_directories()
-    
-    # Extract base filename without extension
-    base_name = os.path.splitext(os.path.basename(video_path))[0]
-    temp_audio = os.path.join(audio_dir, f"{base_name}_temp.wav")
-    final_audio = os.path.join(audio_dir, f"{base_name}.mp3")
-    
-    # If the final file already exists, optionally skip re-conversion:
-    if os.path.isfile(final_audio):
-        print(f"Audio file already exists for {video_path}, skipping conversion.")
-        return final_audio
-    
-    # Convert video to audio
+def _iter_video_files(directory: Path) -> Iterable[Path]:
+    for path in directory.iterdir():
+        if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS:
+            yield path
+
+
+def video_to_audio(video_path: str | Path, max_size_mb: int = 15) -> str | None:
+    """Convert *video_path* into an MP3 file saved in :data:`AUDIO_DIR`."""
+
+    ensure_output_dirs()
+    source = Path(video_path)
+    base_name = source.stem
+
+    temp_audio = AUDIO_DIR / f"{base_name}_temp.wav"
+    final_audio = AUDIO_DIR / f"{base_name}.mp3"
+
+    if final_audio.exists():
+        print(f"Audio file already exists for {source}, skipping conversion.")
+        return str(final_audio)
+
     try:
-        video = VideoFileClip(video_path)
-        if not video.audio:
-            print(f"No audio track found in {video_path}.")
-            return None
-        video.audio.write_audiofile(temp_audio)
-        video.close()
-    except Exception as e:
-        print(f"Error extracting audio from {video_path}: {e}")
+        with VideoFileClip(str(source)) as clip:
+            if clip.audio is None:
+                print(f"No audio track found in {source}.")
+                return None
+            clip.audio.write_audiofile(str(temp_audio), logger=None)
+    except Exception as exc:  # pragma: no cover - moviepy raises many runtime errors
+        print(f"Error extracting audio from {source}: {exc}")
         return None
-    
-    # Convert to MP3 with size management
+
     try:
         audio = AudioSegment.from_file(temp_audio, format="wav")
-        current_size = os.path.getsize(temp_audio) / (1024 * 1024)  # MB
+        current_size = temp_audio.stat().st_size / (1024 * 1024)
 
         if current_size <= max_size_mb:
             audio.export(final_audio, format="mp3", bitrate="192k")
         else:
-            # Calculate required bitrate to meet size limit
             duration_s = len(audio) / 1000
-            target_bitrate = int((max_size_mb * 8192) / duration_s)  # kbps
+            target_bitrate = int((max_size_mb * 8192) / duration_s)
             bitrate = max(32, min(192, target_bitrate))
             audio.export(final_audio, format="mp3", bitrate=f"{bitrate}k")
-    except Exception as e:
-        print(f"Error processing audio file {temp_audio}: {e}")
+    except Exception as exc:  # pragma: no cover - depends on external codecs
+        print(f"Error processing audio file {temp_audio}: {exc}")
         return None
     finally:
-        # Clean up temporary file if it exists
-        if os.path.exists(temp_audio):
-            os.remove(temp_audio)
-    
-    return final_audio
+        if temp_audio.exists():
+            temp_audio.unlink()
+
+    return str(final_audio)
 
 
-def process_videos_in_directory(directory):
-    """
-    Process all videos in a directory, converting them to MP3.
-    
-    Args:
-        directory (str): Path to directory containing videos
-        
-    Returns:
-        list: Paths to processed audio files
-    """
-    import os
-    video_extensions = ('.mp4', '.avi', '.mov', '.mkv')
-    processed_audio_files = []
-    
-    if not os.path.isdir(directory):
+def process_videos_in_directory(directory: str | Path) -> List[str]:
+    """Convert every supported video inside *directory* to audio."""
+
+    directory_path = Path(directory)
+    if not directory_path.is_dir():
         print(f"Invalid directory: {directory}")
         return []
-    
-    for filename in os.listdir(directory):
-        if filename.lower().endswith(video_extensions):
-            video_path = os.path.join(directory, filename)
-            print(f"Processing {filename}...")
-            output_path = video_to_audio(video_path)
-            if output_path:
-                processed_audio_files.append(output_path)
-                print(f"Created audio file: {output_path}")
-            else:
-                print(f"Failed to process {filename}")
-    
+
+    processed_audio_files: List[str] = []
+
+    for video_file in sorted(_iter_video_files(directory_path)):
+        print(f"Processing {video_file.name}...")
+        output_path = video_to_audio(video_file)
+        if output_path:
+            processed_audio_files.append(output_path)
+            print(f"Created audio file: {output_path}")
+        else:
+            print(f"Failed to process {video_file.name}")
+
     return processed_audio_files
